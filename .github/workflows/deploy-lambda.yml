@@ -81,7 +81,7 @@ jobs:
     - name: Add Permission for EventBridge to Invoke Lambda
       run: |
         aws lambda add-permission \
-          --function-name aggregate_kpis \
+          --function-name aggregate_kpis\
           --statement-id "AllowEventBridgeInvoke" \
           --action 'lambda:InvokeFunction' \
           --principal events.amazonaws.com \
