@@ -8,6 +8,7 @@ env:
   AWS_REGION: eu-north-1
   LAMBDA_FUNCTION_NAME1: KinesisIngestion
   LAMBDA_FUNCTION_NAME2: aggregate_kpis
+  LAMBDA_FUNCTION_NAME3: monitor_data_quality
 
 jobs:
   deploy:
@@ -21,6 +22,17 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
+
+    - name: Create SNS Topic for Data Quality Alerts
+      run: |
+        aws sns create-topic --name data-quality-alerts
+
+    - name: Subscribe Email to SNS Topic
+      run: |
+        aws sns subscribe \
+          --topic-arn arn:aws:sns:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:data-quality-alerts \
+          --protocol email \
+          --notification-endpoint ${{ secrets.EMAIL_NOTIFICATION_ENDPOINT }}
 
     - name: Prepare Stream Lambda Build Directory
       run: |
@@ -65,24 +77,29 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
-    - name: Deploy Stream Lambda to AWS Lambda
+    - name: Update Monitor Lambda Environment Variables
+      run: |
+        aws lambda update-function-configuration \
+          --function-name monitor_data_quality \
+          --environment "Variables={AWS_REGION=${{ env.AWS_REGION }},AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}}"
+
+    - name: Deploy Stream Lambda
       run: |
         aws lambda update-function-code \
           --function-name $LAMBDA_FUNCTION_NAME1 \
           --zip-file fileb://data-processing/lambda1.zip
 
-    - name: Deploy Aggregate Daily KPIs Lambda to AWS Lambda
+    - name: Deploy KPI Lambda
       run: |
         aws lambda update-function-code \
           --function-name $LAMBDA_FUNCTION_NAME2 \
           --zip-file fileb://data-processing/lambda2.zip
 
-    - name: Deploy Monitor Lambda to AWS Lambda
+    - name: Deploy Monitor Lambda
       run: |
         aws lambda update-function-code \
-          --function-name monitor_data_quality \
+          --function-name $LAMBDA_FUNCTION_NAME3 \
           --zip-file fileb://data-processing/lambda3.zip
-
 
     - name: Create EventBridge Rule for Daily KPI Aggregation
       run: |
@@ -91,20 +108,20 @@ jobs:
           --schedule-expression "cron(0 0 * * ? *)" \
           --region ${{ env.AWS_REGION }}
 
-    - name: Add Lambda Target to EventBridge Rule
+    - name: Link Rule to Aggregate Lambda
       run: |
         aws events put-targets \
           --rule "DailyAggregateKPI" \
-          --targets "[{\"Id\":\"1\",\"Arn\":\"arn:aws:lambda:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:function:aggregate_kpis\"}]"
+          --targets "[{\"Id\":\"1\",\"Arn\":\"arn:aws:lambda:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:function:$LAMBDA_FUNCTION_NAME2\"}]"
 
-    - name: Add Permission for EventBridge to Invoke Lambda
+    - name: Allow EventBridge to Trigger Aggregate Lambda
       run: |
         aws lambda add-permission \
-          --function-name aggregate_kpis \
-          --statement-id "AllowEventBridgeInvokeV2" \
+          --function-name $LAMBDA_FUNCTION_NAME2 \
+          --statement-id "AllowEventBridgeInvokeAggregate" \
           --action 'lambda:InvokeFunction' \
           --principal events.amazonaws.com \
-          --source-arn "arn:aws:events:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:rule/DailyAggregateKPI"
+          --source-arn "arn:aws:events:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:rule/DailyAggregateKPI" || true
 
     - name: Create EventBridge Rule for Daily Data Quality Check
       run: |
@@ -117,14 +134,22 @@ jobs:
       run: |
         aws events put-targets \
           --rule "DailyDataQualityCheck" \
-          --targets "[{\"Id\":\"1\",\"Arn\":\"arn:aws:lambda:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:function:monitor_data_quality\"}]"
+          --targets "[{\"Id\":\"1\",\"Arn\":\"arn:aws:lambda:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:function:$LAMBDA_FUNCTION_NAME3\"}]"
 
-    - name: Add Permission for EventBridge to Invoke Monitor Lambda
+    - name: Allow EventBridge to Trigger Monitor Lambda
       run: |
         aws lambda add-permission \
-          --function-name monitor_data_quality \
-          --statement-id "AllowMonitorInvoke" \
+          --function-name $LAMBDA_FUNCTION_NAME3 \
+          --statement-id "AllowEventBridgeInvokeMonitor" \
           --action 'lambda:InvokeFunction' \
           --principal events.amazonaws.com \
-          --source-arn "arn:aws:events:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:rule/DailyDataQualityCheck"
+          --source-arn "arn:aws:events:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:rule/DailyDataQualityCheck" || true
 
+    - name: Allow Monitor Lambda to Publish to SNS
+      run: |
+        aws lambda add-permission \
+          --function-name $LAMBDA_FUNCTION_NAME3 \
+          --statement-id "AllowSNSPublishMonitor" \
+          --action "lambda:InvokeFunction" \
+          --principal sns.amazonaws.com \
+          --source-arn arn:aws:sns:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:data-quality-alerts || true
