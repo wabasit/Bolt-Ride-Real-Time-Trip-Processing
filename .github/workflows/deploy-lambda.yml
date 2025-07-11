@@ -25,7 +25,7 @@ jobs:
       run: |
         cd data-processing/lambda_functions
         mkdir -p build
-        pip install -r ../../requirements.txt -t build
+        pip install -r ../requirements.txt -t build
         cp lambda_processor.py build/
 
     - name: Zip Lambda Function
