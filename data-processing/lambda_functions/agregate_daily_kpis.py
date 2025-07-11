@@ -6,8 +6,8 @@ import json
 
 # Constants
 TABLE_NAME = "trip_state"
-BUCKET_NAME = "bolt-project7" 
-OUTPUT_PREFIX = "kpis/" 
+BUCKET_NAME = "bolt-project7"
+OUTPUT_PREFIX = "kpis/"
 REGION = "eu-north-1"
 
 dynamodb = boto3.resource("dynamodb", region_name=REGION)
@@ -40,36 +40,43 @@ def group_by_date(trips):
 def calculate_kpis(trips):
     fares = [float(trip["trip_end"]["fare_amount"]) for trip in trips]
     return {
-        "total_fare": sum(fares),
+        "total_fare": round(sum(fares), 2),
         "count_trips": len(fares),
-        "average_fare": round(sum(fares)/len(fares), 2) if fares else 0,
+        "average_fare": round(sum(fares) / len(fares), 2) if fares else 0,
         "max_fare": max(fares) if fares else 0,
         "min_fare": min(fares) if fares else 0
     }
 
-def write_to_s3(date, kpi):
-    filename = f"{OUTPUT_PREFIX}{date}.json"
+def write_to_s3_partitioned(date_str, kpi):
+    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+    year = date_obj.strftime("%Y")
+    month = date_obj.strftime("%m")
+    day = date_obj.strftime("%d")
+
+    s3_key = f"{OUTPUT_PREFIX}year={year}/month={month}/day={day}/kpis.json"
+    
     body = json.dumps({
-        "date": date,
+        "date": date_str,
         **kpi
     }, default=convert_decimal)
 
     s3.put_object(
         Bucket=BUCKET_NAME,
-        Key=filename,
+        Key=s3_key,
         Body=body,
-        ContentType='application/json'
+        ContentType="application/json"
     )
-    print(f"Uploaded KPIs for {date} to s3://{BUCKET_NAME}/{filename}")
+
+    print(f"Uploaded KPIs for {date_str} to s3://{BUCKET_NAME}/{s3_key}")
 
 def main():
-    print("🔍 Fetching completed trips...")
+    print("Fetching completed trips...")
     trips = fetch_completed_trips()
     grouped = group_by_date(trips)
 
     for date, date_trips in grouped.items():
         kpis = calculate_kpis(date_trips)
-        write_to_s3(date, kpis)
+        write_to_s3_partitioned(date, kpis)
 
 if __name__ == "__main__":
     main()
