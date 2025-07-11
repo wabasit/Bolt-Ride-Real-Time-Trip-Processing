@@ -1,0 +1,68 @@
+name: Deploy Lambda Function
+
+on:
+  push:
+    branches: [pipeline]
+
+env:
+  AWS_REGION: eu-north-1
+  LAMBDA_FUNCTION_NAME1: KinesisIngestion
+  LAMBDA_FUNCTION_NAME2: aggregate_kpis
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Prepare Stream Lambda Build Directory
+      run: |
+        cd data-processing/lambda_functions
+        mkdir -p build
+        # Only install what's needed (excluding pandas)
+        pip install -r ../requirements.txt -t build
+        cp lambda_function.py build/
+
+    - name: Zip Stream Lambda Function
+      run: |
+        cd data-processing/lambda_functions/build
+        zip -r ../../lambda1.zip .
+
+    - name: Prepare KPI Lambda Build Directory
+      run: |
+        cd data-processing/lambda_functions
+        mkdir -p build
+        # Only install what's needed (excluding pandas)
+        pip install -r ../requirements.txt -t build
+        cp aggregate_kpis.py build/
+
+    - name: Zip KPI Lambda Function
+      run: |
+        cd data-processing/lambda_functions/build
+        zip -r ../../lambda2.zip .
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Deploy Stream Lambda to AWS Lambda
+      run: |
+        aws lambda update-function-code \
+          --function-name $LAMBDA_FUNCTION_NAME1 \
+          --zip-file fileb://data-processing/lambda1.zip
+
+    - name: Deploy Aggregate Daily KPIs Lambda to AWS Lambda
+      run: |
+        aws lambda update-function-code \
+          --function-name $LAMBDA_FUNCTION_NAME2 \
+          --zip-file fileb://data-processing/lambda2.zip
