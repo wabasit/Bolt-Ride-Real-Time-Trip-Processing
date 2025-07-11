@@ -2,29 +2,6 @@
 
 ---
 
-## Table of Contents
-
-1. [Overview](#overview)
-2. [Project Architecture](#project-architecture)
-3. [AWS Services Used and Justifications](#aws-services-used-and-justifications)
-4. [Setup Instructions](#setup-instructions)
-5. [Project Directory Structure](#project-directory-structure)
-6. [Entity Relationship Diagram (ERD)](#entity-relationship-diagram-erd)
-7. [Sample Stream Data](#sample-stream-data)
-8. [Sample Aggregated KPI Data](#sample-aggregated-kpi-data)
-9. [Project Flow](#project-flow)
-10. [Core Lambda Functions](#core-lambda-functions)
-11. [EventBridge Configuration](#eventbridge-configuration)
-12. [SNS Configuration](#sns-configuration)
-13. [GitHub Actions CI/CD Pipeline](#github-actions-cicd-pipeline)
-14. [Security Measures Implemented](#security-measures-implemented)
-15. [Cost Optimization Strategies](#cost-optimization-strategies)
-16. [Challenges and Resolutions](#challenges-and-resolutions)
-17. [Efficiency and Design Rationale](#efficiency-and-design-rationale)
-18. [Conclusion](#conclusion)
-
----
-
 ## Overview
 
 This project is a **real-time data processing pipeline** designed to capture taxi trip events (start and end), aggregate KPIs daily (total fare, trip count, average fare, durations, etc.), monitor data quality, and visualize aggregated KPIs in **Amazon QuickSight** via **Athena**. Built entirely using serverless and cost-effective AWS services, the system ensures fault-tolerance, modular design, and observability.
