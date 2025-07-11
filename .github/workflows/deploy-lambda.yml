@@ -27,7 +27,7 @@ jobs:
         mkdir -p build
         # Only install what's needed (excluding pandas)
         pip install -r ../requirements.txt -t build
-        cp lambda_processor.py build/
+        cp lambda_function.py build/
 
     - name: Zip Lambda Function
       run: |
