@@ -3,7 +3,7 @@ import json
 import boto3
 from datetime import datetime
 
-# Initialize DynamoDB clients for future use
+# Initializing DynamoDB clients for future use
 dynamodb = boto3.resource('dynamodb')
 trip_state_table = dynamodb.Table('trip_state')
 quarantine_table = dynamodb.Table('quarantined_events')
