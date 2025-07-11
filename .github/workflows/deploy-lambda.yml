@@ -46,6 +46,18 @@ jobs:
         cd data-processing/lambda_functions/build_kpi
         zip -r ../../lambda2.zip .
 
+    - name: Prepare Monitor Lambda Build Directory
+      run: |
+        cd data-processing/lambda_functions
+        mkdir -p build_monitor
+        pip install -r ../requirements.txt -t build_monitor
+        cp monitor_data_quality.py build_monitor/
+
+    - name: Zip Monitor Lambda Function
+      run: |
+        cd data-processing/lambda_functions/build_monitor
+        zip -r ../../lambda3.zip .
+
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
@@ -64,6 +76,13 @@ jobs:
         aws lambda update-function-code \
           --function-name $LAMBDA_FUNCTION_NAME2 \
           --zip-file fileb://data-processing/lambda2.zip
+
+    - name: Deploy Monitor Lambda to AWS Lambda
+      run: |
+        aws lambda update-function-code \
+          --function-name monitor_data_quality \
+          --zip-file fileb://data-processing/lambda3.zip
+
 
     - name: Create EventBridge Rule for Daily KPI Aggregation
       run: |
@@ -87,4 +106,25 @@ jobs:
           --principal events.amazonaws.com \
           --source-arn "arn:aws:events:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:rule/DailyAggregateKPI"
 
+    - name: Create EventBridge Rule for Daily Data Quality Check
+      run: |
+        aws events put-rule \
+          --name "DailyDataQualityCheck" \
+          --schedule-expression "cron(30 0 * * ? *)" \
+          --region ${{ env.AWS_REGION }}
+
+    - name: Link Rule to Monitor Lambda
+      run: |
+        aws events put-targets \
+          --rule "DailyDataQualityCheck" \
+          --targets "[{\"Id\":\"1\",\"Arn\":\"arn:aws:lambda:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:function:monitor_data_quality\"}]"
+
+    - name: Add Permission for EventBridge to Invoke Monitor Lambda
+      run: |
+        aws lambda add-permission \
+          --function-name monitor_data_quality \
+          --statement-id "AllowMonitorInvoke" \
+          --action 'lambda:InvokeFunction' \
+          --principal events.amazonaws.com \
+          --source-arn "arn:aws:events:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:rule/DailyDataQualityCheck"
 
