@@ -22,11 +22,10 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Prepare The Stream Lambda Build Directory
+    - name: Prepare Stream Lambda Build Directory
       run: |
         cd data-processing/lambda_functions
         mkdir -p build_stream
-        # Only install what's needed (excluding pandas)
         pip install -r ../requirements.txt -t build_stream
         cp lambda_function.py build_stream/
 
@@ -39,7 +38,6 @@ jobs:
       run: |
         cd data-processing/lambda_functions
         mkdir -p build_kpi
-        # Only install what's needed (excluding pandas)
         pip install -r ../requirements.txt -t build_kpi
         cp aggregate_daily_kpis.py build_kpi/
 
