@@ -26,12 +26,12 @@ def send_event_to_kinesis(event: dict, event_type: str):
         PartitionKey=partition_key
     )
 
-    print(f"✅ Sent {event_type}: {event['trip_id']} | Seq: {response['SequenceNumber']}")
+    print(f"Sent {event_type}: {event['trip_id']} | Seq: {response['SequenceNumber']}")
 
 
 def quarantine_event(event: dict, reason: str):
     event_id = event.get("trip_id", f"unknown-{random.randint(1000, 9999)}")
-    print(f"🚨 Quarantining {event_id}: {reason}")
+    print(f"Quarantining {event_id}: {reason}")
 
     dynamodb_client.put_item(
         TableName="quarantined_events",
@@ -59,7 +59,7 @@ def stream_randomized(trip_start_path, trip_end_path, delay=0.5):
 
     seen_trip_ids = set()
 
-    print(f"\n🎲 Streaming {len(combined)} randomized events...\n")
+    print(f"\nStreaming {len(combined)} randomized events...\n")
     for item in combined:
         event = item["event"]
         event_type = item["type"]
