@@ -7,10 +7,6 @@ import boto3
 KINESIS_STREAM_NAME = "trip-events"
 REGION = "eu-north-1"
 
-# Track trip_ids that have started
-started_trips = set()
-
-# Clients
 kinesis_client = boto3.client("kinesis", region_name=REGION)
 dynamodb_client = boto3.client("dynamodb", region_name=REGION)
 
@@ -48,33 +44,40 @@ def quarantine_event(event: dict, reason: str):
     )
 
 
-def stream_csv_events(csv_path, event_type, delay=1.0):
-    with open(csv_path, "r") as f:
+def load_csv_events(path: str):
+    with open(path, "r") as f:
         reader = csv.DictReader(f)
-        for row in reader:
-            trip_id = row.get("trip_id")
+        return list(reader)
 
-            if event_type == "trip_start":
-                started_trips.add(trip_id)
-                send_event_to_kinesis(row, event_type)
 
-            elif event_type == "trip_end":
-                if trip_id not in started_trips:
-                    quarantine_event(row, "Trip end received before trip start")
-                else:
-                    send_event_to_kinesis(row, event_type)
+def stream_fixed_batch(trip_start_path, trip_end_path, batch_size=10, delay=1.0):
+    trip_starts = load_csv_events(trip_start_path)[:batch_size]
+    trip_ends = load_csv_events(trip_end_path)[:batch_size]
 
-            time.sleep(delay)
+    trip_id_set = set()
+
+    print(f"\nSending {batch_size} trip_start events...")
+    for row in trip_starts:
+        trip_id_set.add(row["trip_id"])
+        send_event_to_kinesis(row, "trip_start")
+        time.sleep(delay)
+
+    print(f"\nSending {batch_size} trip_end events...")
+    for row in trip_ends:
+        if row["trip_id"] in trip_id_set:
+            send_event_to_kinesis(row, "trip_end")
+        else:
+            quarantine_event(row, "Trip end received before trip start")
+        time.sleep(delay)
 
 
 def main():
-    while True:
-        if random.choice(["start", "end"]) == "start":
-            print("Streaming trip_start event...")
-            stream_csv_events(r"data\trip_start.csv", "trip_start", delay=0.5)
-        else:
-            print("Streaming trip_end event...")
-            stream_csv_events(r"data\trip_end.csv", "trip_end", delay=0.5)
+    stream_fixed_batch(
+        trip_start_path=r"data\trip_start.csv",
+        trip_end_path=r"data\trip_end.csv",
+        batch_size=10,
+        delay=0.5
+    )
 
 
 if __name__ == "__main__":
