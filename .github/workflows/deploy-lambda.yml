@@ -2,11 +2,11 @@ name: Deploy Lambda Function
 
 on:
   push:
-    branches: [pipeline]  
+    branches: [pipeline]
 
 env:
   AWS_REGION: eu-north-1
-  LAMBDA_FUNCTION_NAME: KinesisIngestion 
+  LAMBDA_FUNCTION_NAME: KinesisIngestion
 
 jobs:
   deploy:
@@ -21,11 +21,12 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Install dependencies for Lambda (if any)
+    - name: Prepare Lambda Build Directory
       run: |
         cd data-processing/lambda_functions
         mkdir -p build
-        pip install -r ../requirements.txt -t build
+        # Only install what's needed (excluding pandas)
+        pip install -r ../../requirements.txt -t build
         cp lambda_processor.py build/
 
     - name: Zip Lambda Function
