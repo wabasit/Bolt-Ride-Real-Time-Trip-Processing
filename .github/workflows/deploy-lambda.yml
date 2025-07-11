@@ -25,27 +25,27 @@ jobs:
     - name: Prepare The Stream Lambda Build Directory
       run: |
         cd data-processing/lambda_functions
-        mkdir -p build
+        mkdir -p build_stream
         # Only install what's needed (excluding pandas)
-        pip install -r ../requirements.txt -t build
-        cp lambda_function.py build/
+        pip install -r ../requirements.txt -t build_stream
+        cp lambda_function.py build_stream/
 
     - name: Zip Stream Lambda Function
       run: |
-        cd data-processing/lambda_functions/build
+        cd data-processing/lambda_functions/build_stream
         zip -r ../../lambda1.zip .
 
     - name: Prepare KPI Lambda Build Directory
       run: |
         cd data-processing/lambda_functions
-        mkdir -p build
+        mkdir -p build_kpi
         # Only install what's needed (excluding pandas)
-        pip install -r ../requirements.txt -t build
-        cp aggregate_kpis.py build/
+        pip install -r ../requirements.txt -t build_kpi
+        cp aggregate_kpis.py build_kpi/
 
     - name: Zip KPI Lambda Function
       run: |
-        cd data-processing/lambda_functions/build
+        cd data-processing/lambda_functions/build_kpi
         zip -r ../../lambda2.zip .
 
     - name: Configure AWS Credentials
