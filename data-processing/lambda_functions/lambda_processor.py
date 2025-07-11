@@ -62,23 +62,19 @@ def handle_trip_end(event_body):
     if not trip_id:
         raise ValueError("Missing trip_id in trip_end")
 
-    # Lookup trip start (we'll later do something smarter here)
     response = trip_state_table.get_item(Key={"trip_id": trip_id})
-    if "Item" not in response:
-        raise ValueError(f"Trip ID {trip_id} not found in trip_state")
+    item = response.get("Item")
 
-    # Update trip record
-    trip_state_table.update_item(
-        Key={"trip_id": trip_id},
-        UpdateExpression="SET trip_end = :end_data, #s = :status",
-        ExpressionAttributeValues={
-            ":end_data": event_body,
-            ":status": "completed"
-        },
-        ExpressionAttributeNames={
-            "#s": "status"
-        }
-    )
+    if not item or "trip_start" not in item:
+        raise ValueError(f"No matching trip_start for trip_id {trip_id}")
+
+    # Merge trip_end with existing record
+    trip_state_table.put_item(Item={
+        "trip_id": trip_id,
+        "status": "completed",
+        "trip_start": item["trip_start"],
+        "trip_end": event_body
+    })
 
 
 def quarantine(trip_id, raw_event, reason):
