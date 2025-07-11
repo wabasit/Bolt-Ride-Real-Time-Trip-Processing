@@ -64,3 +64,22 @@ jobs:
         aws lambda update-function-code \
           --function-name $LAMBDA_FUNCTION_NAME2 \
           --zip-file fileb://data-processing/lambda2.zip
+
+    - name: Create EventBridge Rule for Daily KPI Aggregation
+      run: |
+        aws events put-rule --name "DailyAggregateKPI" --schedule-expression "cron(0 0 * * ? *)" --region ${{ env.AWS_REGION }}
+
+    - name: Add Lambda Permission for EventBridge Rule
+      run: |
+        aws events put-targets --rule "DailyAggregateKPI" --targets "Id"="1","Arn"="arn:aws:lambda:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:function:aggregate_kpis"
+
+    - name: Add Permission for EventBridge to Invoke Lambda
+      run: |
+        aws lambda add-permission \
+        --function-name aggregate_kpis \
+        --statement-id "AllowEventBridgeInvoke" \
+        --action 'lambda:InvokeFunction' \
+        --principal events.amazonaws.com \
+        --source-arn "arn:aws:events:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:rule/DailyAggregateKPI"
+
+
