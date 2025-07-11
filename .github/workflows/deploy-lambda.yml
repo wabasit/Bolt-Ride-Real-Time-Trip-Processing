@@ -41,7 +41,7 @@ jobs:
         mkdir -p build_kpi
         # Only install what's needed (excluding pandas)
         pip install -r ../requirements.txt -t build_kpi
-        cp aggregate_kpis.py build_kpi/
+        cp aggregate_daily_kpis.py build_kpi/
 
     - name: Zip KPI Lambda Function
       run: |
