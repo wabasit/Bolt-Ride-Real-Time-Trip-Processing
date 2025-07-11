@@ -2,7 +2,7 @@ name: Deploy Lambda Function
 
 on:
   push:
-    branches: [pipeline]  
+    branches: [main]  
 
 env:
   AWS_REGION: eu-north-1
