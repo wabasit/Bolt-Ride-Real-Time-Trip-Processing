@@ -1,26 +1,58 @@
 import boto3
 from datetime import datetime, timedelta
 from decimal import Decimal
+import json
+import os
 
-dynamodb = boto3.resource('dynamodb', region_name="eu-north-1")
+# AWS Config
+REGION = os.environ["AWS_REGION"]
+ACCOUNT_ID = os.environ["AWS_ACCOUNT_ID"]
+SNS_TOPIC_ARN = f"arn:aws:sns:{REGION}:{ACCOUNT_ID}:data-quality-alerts"
+
+# AWS Resources
+dynamodb = boto3.resource('dynamodb', region_name=REGION)
+sns = boto3.client("sns", region_name=REGION)
 table = dynamodb.Table("trip_state")
 quarantine_table = dynamodb.Table("quarantined_events")
 
 THRESHOLD_HOURS = 6
-
-def log_issue(trip_id, issue, data):
-    quarantine_table.put_item(Item={
-        "trip_id": trip_id,
-        "reason": issue,
-        "raw_payload": data,
-        "ingest_time": datetime.utcnow().isoformat()
-    })
-    print(f"Quarantined {trip_id}: {issue}")
+issues_logged = []
 
 def convert_decimal(obj):
     if isinstance(obj, Decimal):
         return float(obj)
     return obj
+
+def log_issue(trip_id, issue, data):
+    record = {
+        "trip_id": trip_id,
+        "reason": issue,
+        "raw_payload": data,
+        "ingest_time": datetime.utcnow().isoformat()
+    }
+
+    quarantine_table.put_item(Item=record)
+    issues_logged.append(record)
+    print(f"Quarantined {trip_id}: {issue}")
+
+def send_alert():
+    if not issues_logged:
+        print("No data issues found.")
+        return
+
+    subject = f"Data Quality Issues Detected: {len(issues_logged)} records"
+    message = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "total_issues": len(issues_logged),
+        "issues": issues_logged[:10],  # show only first 10 to limit size
+    }
+
+    sns.publish(
+        TopicArn=SNS_TOPIC_ARN,
+        Subject=subject,
+        Message=json.dumps(message, default=str)
+    )
+    print("Alert sent to SNS topic.")
 
 def lambda_handler(event=None, context=None):
     print("Running data quality checks...")
@@ -64,4 +96,5 @@ def lambda_handler(event=None, context=None):
             except Exception as e:
                 log_issue(trip_id, f"Invalid fare value: {e}", item)
 
+    send_alert()
     print("Data quality check completed.")
