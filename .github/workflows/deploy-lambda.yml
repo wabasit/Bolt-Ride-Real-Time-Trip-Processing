@@ -103,9 +103,13 @@ jobs:
 
     - name: Set Monitor Lambda Environment Vars
       run: |
-        aws lambda update-function-configuration \
-          --function-name $LAMBDA_FUNCTION_NAME3 \
-          --environment "Variables={AWS_REGION=${{ env.AWS_REGION }},AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }},SNS_TOPIC_ARN=$SNS_TOPIC_ARN}"
+        for i in {1..5}; do
+          echo "Attempt $i to update environment variables..."
+          aws lambda update-function-configuration \
+            --function-name $LAMBDA_FUNCTION_NAME3 \
+            --environment "Variables={AWS_REGION=${{ env.AWS_REGION }},AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }},SNS_TOPIC_ARN=$SNS_TOPIC_ARN}" \
+            && break || sleep 10
+        done
 
     # === EVENTBRIDGE RULES & PERMISSIONS ===
 
