@@ -69,6 +69,9 @@ def write_to_s3_partitioned(date_str, kpi):
 
     print(f"Uploaded KPIs for {date_str} to s3://{BUCKET_NAME}/{s3_key}")
 
+def lambda_handler(event, context):
+    main()
+
 def main():
     print("Fetching completed trips...")
     trips = fetch_completed_trips()
