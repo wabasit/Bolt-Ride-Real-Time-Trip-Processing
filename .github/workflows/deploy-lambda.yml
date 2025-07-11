@@ -22,7 +22,7 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Prepare Stream Lambda Build Directory
+    - name: Prepare The Stream Lambda Build Directory
       run: |
         cd data-processing/lambda_functions
         mkdir -p build
