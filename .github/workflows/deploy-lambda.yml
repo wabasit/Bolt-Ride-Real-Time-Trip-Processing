@@ -101,15 +101,16 @@ jobs:
           --function-name $LAMBDA_FUNCTION_NAME3 \
           --zip-file fileb://data-processing/lambda3.zip
 
-    - name: Set Monitor Lambda Environment Vars
+    - name: Set Monitor Lambda Environment Vars with Retry
       run: |
-        for i in {1..5}; do
-          echo "Attempt $i to update environment variables..."
+        for attempt in {1..5}; do
+          echo "Attempt $attempt to update environment variables..."
           aws lambda update-function-configuration \
             --function-name $LAMBDA_FUNCTION_NAME3 \
             --environment "Variables={AWS_REGION=${{ env.AWS_REGION }},AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }},SNS_TOPIC_ARN=$SNS_TOPIC_ARN}" \
             && break || sleep 10
         done
+
 
     # === EVENTBRIDGE RULES & PERMISSIONS ===
 
