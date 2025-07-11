@@ -1,6 +1,6 @@
 import boto3
 from decimal import Decimal
-from collections import defaultdict
+from collections import defaultdict, Counter
 from datetime import datetime
 import json
 
@@ -12,7 +12,6 @@ REGION = "eu-north-1"
 
 dynamodb = boto3.resource("dynamodb", region_name=REGION)
 s3 = boto3.client("s3", region_name=REGION)
-
 table = dynamodb.Table(TABLE_NAME)
 
 def convert_decimal(obj):
@@ -38,13 +37,36 @@ def group_by_date(trips):
     return grouped
 
 def calculate_kpis(trips):
-    fares = [float(trip["trip_end"]["fare_amount"]) for trip in trips]
+    fares = []
+    durations = []
+    cities = []
+
+    for trip in trips:
+        try:
+            fare = float(trip["trip_end"]["fare_amount"])
+            fares.append(fare)
+
+            start_time = datetime.strptime(trip["trip_start"]["pickup_datetime"], "%Y-%m-%d %H:%M:%S")
+            end_time = datetime.strptime(trip["trip_end"]["dropoff_datetime"], "%Y-%m-%d %H:%M:%S")
+            duration_minutes = (end_time - start_time).total_seconds() / 60
+            durations.append(duration_minutes)
+
+            city = trip["trip_start"].get("pickup_location", {}).get("city", "Unknown")
+            if city:
+                cities.append(city)
+        except Exception as e:
+            print(f"Skipping trip due to error: {e}")
+
+    city_counter = Counter(cities)
+    top_city = city_counter.most_common(1)[0][0] if city_counter else "Unknown"
+
     return {
-        "total_fare": round(sum(fares), 2),
-        "count_trips": len(fares),
+        "total_trips": len(fares),
         "average_fare": round(sum(fares) / len(fares), 2) if fares else 0,
-        "max_fare": max(fares) if fares else 0,
-        "min_fare": min(fares) if fares else 0
+        "highest_fare": max(fares) if fares else 0,
+        "lowest_fare": min(fares) if fares else 0,
+        "average_duration_minutes": round(sum(durations) / len(durations), 2) if durations else 0,
+        "city_with_most_trips": top_city
     }
 
 def write_to_s3_partitioned(date_str, kpi):
@@ -57,7 +79,10 @@ def write_to_s3_partitioned(date_str, kpi):
     
     body = json.dumps({
         "date": date_str,
-        **kpi
+        **kpi,
+        "year": year,
+        "month": month,
+        "day": day
     }, default=convert_decimal)
 
     s3.put_object(

@@ -8,6 +8,7 @@ env:
   AWS_REGION: eu-north-1
   LAMBDA_FUNCTION_NAME1: KinesisIngestion
   LAMBDA_FUNCTION_NAME2: aggregate_kpis
+  LAMBDA_FUNCTION_NAME3: monitor_data_quality
 
 jobs:
   deploy:
@@ -22,32 +23,6 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Prepare Stream Lambda Build Directory
-      run: |
-        cd data-processing/lambda_functions
-        mkdir -p build
-        # Only install what's needed (excluding pandas)
-        pip install -r ../requirements.txt -t build
-        cp lambda_function.py build/
-
-    - name: Zip Stream Lambda Function
-      run: |
-        cd data-processing/lambda_functions/build
-        zip -r ../../lambda1.zip .
-
-    - name: Prepare KPI Lambda Build Directory
-      run: |
-        cd data-processing/lambda_functions
-        mkdir -p build
-        # Only install what's needed (excluding pandas)
-        pip install -r ../requirements.txt -t build
-        cp aggregate_kpis.py build/
-
-    - name: Zip KPI Lambda Function
-      run: |
-        cd data-processing/lambda_functions/build
-        zip -r ../../lambda2.zip .
-
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
@@ -55,14 +30,136 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
-    - name: Deploy Stream Lambda to AWS Lambda
+    - name: Create SNS Topic for Data Quality Alerts
+      id: create_sns
+      run: |
+        arn=$(aws sns create-topic --name data-quality-alerts --query 'TopicArn' --output text)
+        echo "SNS_TOPIC_ARN=$arn" >> $GITHUB_ENV
+
+    - name: Subscribe Email to SNS Topic
+      run: |
+        aws sns subscribe \
+          --topic-arn $SNS_TOPIC_ARN \
+          --protocol email \
+          --notification-endpoint ${{ secrets.EMAIL_NOTIFICATION_ENDPOINT }}
+
+    # === BUILD & ZIP LAMBDAS ===
+
+    - name: Prepare Stream Lambda Build
+      run: |
+        cd data-processing/lambda_functions
+        mkdir -p build_stream
+        pip install -r ../requirements.txt -t build_stream
+        cp lambda_function.py build_stream/
+
+    - name: Zip Stream Lambda
+      run: |
+        cd data-processing/lambda_functions/build_stream
+        zip -r ../../lambda1.zip .
+
+    - name: Prepare KPI Lambda Build
+      run: |
+        cd data-processing/lambda_functions
+        mkdir -p build_kpi
+        pip install -r ../requirements.txt -t build_kpi
+        cp aggregate_daily_kpis.py build_kpi/
+
+    - name: Zip KPI Lambda
+      run: |
+        cd data-processing/lambda_functions/build_kpi
+        zip -r ../../lambda2.zip .
+
+    - name: Prepare Monitor Lambda Build
+      run: |
+        cd data-processing/lambda_functions
+        mkdir -p build_monitor
+        pip install -r ../requirements.txt -t build_monitor
+        cp monitor_data_quality.py build_monitor/
+
+    - name: Zip Monitor Lambda
+      run: |
+        cd data-processing/lambda_functions/build_monitor
+        zip -r ../../lambda3.zip .
+
+    # === DEPLOY TO AWS ===
+
+    - name: Deploy Stream Lambda
       run: |
         aws lambda update-function-code \
           --function-name $LAMBDA_FUNCTION_NAME1 \
           --zip-file fileb://data-processing/lambda1.zip
 
-    - name: Deploy Aggregate Daily KPIs Lambda to AWS Lambda
+    - name: Deploy KPI Lambda
       run: |
         aws lambda update-function-code \
           --function-name $LAMBDA_FUNCTION_NAME2 \
           --zip-file fileb://data-processing/lambda2.zip
+
+    - name: Deploy Monitor Lambda
+      run: |
+        aws lambda update-function-code \
+          --function-name $LAMBDA_FUNCTION_NAME3 \
+          --zip-file fileb://data-processing/lambda3.zip
+
+    - name: Set Monitor Lambda Environment Vars with Retry
+      run: |
+        for attempt in {1..5}; do
+          echo "Attempt $attempt to update environment variables..."
+          aws lambda update-function-configuration \
+            --function-name $LAMBDA_FUNCTION_NAME3 \
+            --environment "Variables={AWS_REGION=${{ env.AWS_REGION }},AWS_ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }},SNS_TOPIC_ARN=$SNS_TOPIC_ARN}" \
+            && break || sleep 10
+        done
+
+
+    # === EVENTBRIDGE RULES & PERMISSIONS ===
+
+    - name: Create EventBridge Rule - DailyAggregateKPI
+      run: |
+        aws events put-rule \
+          --name "DailyAggregateKPI" \
+          --schedule-expression "cron(0 0 * * ? *)"
+
+    - name: Link Rule to Aggregate Lambda
+      run: |
+        aws events put-targets \
+          --rule "DailyAggregateKPI" \
+          --targets "[{\"Id\":\"1\",\"Arn\":\"arn:aws:lambda:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:function:$LAMBDA_FUNCTION_NAME2\"}]"
+
+    - name: Allow EventBridge to Trigger Aggregate Lambda
+      run: |
+        aws lambda add-permission \
+          --function-name $LAMBDA_FUNCTION_NAME2 \
+          --statement-id "AllowEventBridgeInvokeAggregate" \
+          --action 'lambda:InvokeFunction' \
+          --principal events.amazonaws.com \
+          --source-arn "arn:aws:events:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:rule/DailyAggregateKPI" || true
+
+    - name: Create EventBridge Rule - DailyDataQualityCheck
+      run: |
+        aws events put-rule \
+          --name "DailyDataQualityCheck" \
+          --schedule-expression "cron(30 0 * * ? *)"
+
+    - name: Link Rule to Monitor Lambda
+      run: |
+        aws events put-targets \
+          --rule "DailyDataQualityCheck" \
+          --targets "[{\"Id\":\"1\",\"Arn\":\"arn:aws:lambda:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:function:$LAMBDA_FUNCTION_NAME3\"}]"
+
+    - name: Allow EventBridge to Trigger Monitor Lambda
+      run: |
+        aws lambda add-permission \
+          --function-name $LAMBDA_FUNCTION_NAME3 \
+          --statement-id "AllowEventBridgeInvokeMonitor" \
+          --action 'lambda:InvokeFunction' \
+          --principal events.amazonaws.com \
+          --source-arn "arn:aws:events:${{ env.AWS_REGION }}:${{ secrets.AWS_ACCOUNT_ID }}:rule/DailyDataQualityCheck" || true
+
+    - name: Allow Monitor Lambda to Publish to SNS
+      run: |
+        aws sns add-permission \
+          --topic-arn $SNS_TOPIC_ARN \
+          --label "AllowMonitorToPublish" \
+          --aws-account-id ${{ secrets.AWS_ACCOUNT_ID }} \
+          --action-name "Publish"

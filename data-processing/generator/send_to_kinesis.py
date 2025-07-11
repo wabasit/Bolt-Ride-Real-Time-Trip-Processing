@@ -26,12 +26,12 @@ def send_event_to_kinesis(event: dict, event_type: str):
         PartitionKey=partition_key
     )
 
-    print(f"Sent {event_type}: {event['trip_id']} | Seq: {response['SequenceNumber']}")
+    print(f"✅ Sent {event_type}: {event['trip_id']} | Seq: {response['SequenceNumber']}")
 
 
 def quarantine_event(event: dict, reason: str):
     event_id = event.get("trip_id", f"unknown-{random.randint(1000, 9999)}")
-    print(f"Quarantining {event_id}: {reason}")
+    print(f"🚨 Quarantining {event_id}: {reason}")
 
     dynamodb_client.put_item(
         TableName="quarantined_events",
@@ -44,39 +44,43 @@ def quarantine_event(event: dict, reason: str):
     )
 
 
-def load_csv_events(path: str):
+def load_csv_events(path: str, label: str):
     with open(path, "r") as f:
         reader = csv.DictReader(f)
-        return list(reader)
+        return [{"event": row, "type": label} for row in reader]
 
 
-def stream_fixed_batch(trip_start_path, trip_end_path, batch_size=10, delay=1.0):
-    trip_starts = load_csv_events(trip_start_path)[:batch_size]
-    trip_ends = load_csv_events(trip_end_path)[:batch_size]
+def stream_randomized(trip_start_path, trip_end_path, delay=0.5):
+    trip_starts = load_csv_events(trip_start_path, "trip_start")
+    trip_ends = load_csv_events(trip_end_path, "trip_end")
 
-    trip_id_set = set()
+    combined = trip_starts + trip_ends
+    random.shuffle(combined)
 
-    print(f"\nSending {batch_size} trip_start events...")
-    for row in trip_starts:
-        trip_id_set.add(row["trip_id"])
-        send_event_to_kinesis(row, "trip_start")
-        time.sleep(delay)
+    seen_trip_ids = set()
 
-    print(f"\nSending {batch_size} trip_end events...")
-    for row in trip_ends:
-        if row["trip_id"] in trip_id_set:
-            send_event_to_kinesis(row, "trip_end")
+    print(f"\n🎲 Streaming {len(combined)} randomized events...\n")
+    for item in combined:
+        event = item["event"]
+        event_type = item["type"]
+        trip_id = event.get("trip_id")
+
+        # Realistic quarantine logic for ends without starts
+        if event_type == "trip_end" and trip_id not in seen_trip_ids:
+            quarantine_event(event, "Trip end received before trip start")
         else:
-            quarantine_event(row, "Trip end received before trip start")
+            send_event_to_kinesis(event, event_type)
+            if event_type == "trip_start":
+                seen_trip_ids.add(trip_id)
+
         time.sleep(delay)
 
 
 def main():
-    stream_fixed_batch(
-        trip_start_path=r"data\trip_start.csv",
-        trip_end_path=r"data\trip_end.csv",
-        batch_size=10,
-        delay=0.5
+    stream_randomized(
+        trip_start_path=r"data/trip_start.csv",
+        trip_end_path=r"data/trip_end.csv",
+        delay=0.3  # Increase speed for more activity
     )
 
 
